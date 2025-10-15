@@ -15,7 +15,6 @@ print(f"--- Using google-generativeai version: {genai.__version__} ---")
 load_dotenv()
 app = Flask(__name__)
 # Allow cookies to be sent from the frontend
-# Replace the old CORS line with this new one
 CORS(app, supports_credentials=True, origins=["https://product-recommender-1-ay6j.onrender.com"])
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
@@ -89,3 +88,4 @@ def recommendations_endpoint():
 if __name__ == '__main__':
 
     app.run(debug=True, port=5000)
+
