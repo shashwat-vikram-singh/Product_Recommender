@@ -4,7 +4,7 @@ const recommendationsContainer = document.getElementById('recommendations-contai
 const fetchRecommendations = async () => {
     recommendationsContainer.innerHTML = '<div class="loader"></div>';
     try {
-        const response = await fetch(`https://product-recommender-c4fb.onrender.com`, {
+        const response = await fetch(`https://product-recommender-c4fb.onrender.com/recommendations`, {
             credentials: 'include'
         });
         if (!response.ok) throw new Error('Network response was not ok');
@@ -52,3 +52,4 @@ const fetchRecommendations = async () => {
 
 
 getRecsBtn.addEventListener('click', fetchRecommendations);
+
