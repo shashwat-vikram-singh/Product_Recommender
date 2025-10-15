@@ -18,8 +18,8 @@ BEHAVIOR_CSV_PATH = os.path.join(BASE_DIR, 'data', 'user_behavior.csv')
 # --- App and API Configuration ---
 load_dotenv()
 app = Flask(__name__)
-# This allows your Vercel frontend to talk to your Render backend
-CORS(app, supports_credentials=True) 
+# Allows your Vercel frontend to talk to your Render backend
+CORS(app, supports_credentials=True)
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # --- Data Loading ---
@@ -31,7 +31,6 @@ try:
     print("--- Data files loaded successfully! ---")
 except FileNotFoundError as e:
     print(f"FATAL ERROR: Could not find data files. The server will not work. Error: {e}")
-    # In a real app, you might want to exit or handle this more gracefully
     products_df = pd.DataFrame()
     behavior_df = pd.DataFrame()
 
@@ -39,7 +38,7 @@ except FileNotFoundError as e:
 # --- Recommendation Logic (Unchanged) ---
 def get_recommendations(user_id):
     if behavior_df.empty or products_df.empty:
-        return pd.DataFrame() # Return empty if data failed to load
+        return pd.DataFrame()
         
     user_viewed_products = behavior_df[behavior_df['user_id'] == user_id]['viewed_product_id'].unique()
     if len(user_viewed_products) == 0:
@@ -58,7 +57,7 @@ def get_recommendations(user_id):
     return products_df[products_df['product_id'].isin(top_recs_ids)]
 
 
-# --- API Endpoint (Completely Rewritten for Speed) ---
+# --- API Endpoint with Debugging ---
 @app.route('/recommendations', methods=['GET'])
 def recommendations_endpoint():
     user_id = request.cookies.get('user_id')
@@ -66,7 +65,6 @@ def recommendations_endpoint():
         user_id = str(uuid.uuid4())
         print(f"New user detected. Assigning ID: {user_id}")
     
-    # Use a consistent ID for recommendation logic
     pseudo_int_id = int(uuid.UUID(user_id).int % NUM_USERS) + USER_ID_START
     
     recommended_products = get_recommendations(pseudo_int_id)
@@ -74,9 +72,8 @@ def recommendations_endpoint():
     user_history_df = products_df[products_df['product_id'].isin(user_history_ids)]
     
     if recommended_products.empty:
-        return jsonify([]) # Return an empty list if no recommendations
+        return jsonify([])
 
-    # 1. Prepare a single, efficient prompt for the LLM
     user_history_str = ', '.join(user_history_df['product_name'].tolist()) if not user_history_df.empty else "a variety of items"
     recs_list_str = '\n'.join([f"- {row['product_name']}" for _, row in recommended_products.iterrows()])
     
@@ -93,14 +90,23 @@ Product Name 1: Because you liked [related item], you'll love this one's feature
 Product Name 2: Since you're interested in [category], this is a perfect match.
 """
 
+    # --- DEBUGGING STEP 1: Log the prompt being sent ---
+    print("-----------------------------------------")
+    print("--- PROMPT SENT TO GEMINI ---")
+    print(prompt)
+    print("-----------------------------------------")
+
     explanation_map = {}
-    # 2. Call the LLM only ONCE to avoid timeouts
     try:
-        model = genai.GenerativeModel('gemini-pro') # Using the stable gemini-pro model
+        model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content(prompt)
         explanations_text = response.text.strip()
         
-        # 3. Parse the LLM's single response into a dictionary
+        # --- DEBUGGING STEP 2: Log the raw response from Gemini ---
+        print("--- RESPONSE RECEIVED FROM GEMINI ---")
+        print(explanations_text)
+        print("-----------------------------------------")
+
         for line in explanations_text.split('\n'):
             if ':' in line:
                 parts = line.split(':', 1)
@@ -109,19 +115,18 @@ Product Name 2: Since you're interested in [category], this is a perfect match.
                 explanation_map[product_name] = explanation
 
     except Exception as e:
-        print(f"Error calling Google Gemini: {e}")
-        # If the API fails, we can still proceed without explanations
+        # --- DEBUGGING STEP 3: Log any error that occurs ---
+        print("!!!!!! ERROR CALLING GEMINI API !!!!!!")
+        print(e)
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
-    # 4. Combine products with their generated explanations
     response_data = []
     for _, product in recommended_products.iterrows():
         product_dict = product.to_dict()
         product_name = product_dict['product_name']
-        # Use the generated explanation or a fallback
         product_dict['explanation'] = explanation_map.get(product_name, "This would be a great addition to your collection!")
         response_data.append(product_dict)
             
-    # 5. Create the final response and set the user cookie
     response = make_response(jsonify(response_data))
     response.set_cookie('user_id', user_id, max_age=60*60*24*365, samesite='None', secure=True)
     
