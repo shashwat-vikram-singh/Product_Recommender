@@ -98,7 +98,7 @@ Product Name 2: Since you're interested in [category], this is a perfect match.
 
     explanation_map = {}
     try:
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('models/gemini-pro-latest')
         response = model.generate_content(prompt)
         explanations_text = response.text.strip()
         
