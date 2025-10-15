@@ -22,7 +22,7 @@ BEHAVIOR_CSV_PATH = os.path.join(BASE_DIR, 'data', 'user_behavior.csv')
 print(f"--- Using google-generativeai version: {genai.__version__} ---")
 load_dotenv()
 app = Flask(__name__)
-CORS(app, supports_credentials=True, origins=["https://product-recommender-1-ay6j.onrender.com"])
+CORS(app)
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # --- Updated Data Loading ---
@@ -98,3 +98,4 @@ def recommendations_endpoint():
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
