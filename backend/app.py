@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-import time
 import uuid
 from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS
@@ -11,21 +10,19 @@ import google.generativeai as genai
 NUM_USERS = 50
 USER_ID_START = 101
 
-# --- THIS IS THE CRUCIAL FIX ---
-# Get the absolute path of the directory where this script is located
+# --- Get the absolute path for data files to work correctly on Render ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Define the paths to your data files using the base directory
 PRODUCTS_CSV_PATH = os.path.join(BASE_DIR, 'data', 'products.csv')
 BEHAVIOR_CSV_PATH = os.path.join(BASE_DIR, 'data', 'user_behavior.csv')
-# --- END OF FIX ---
 
-print(f"--- Using google-generativeai version: {genai.__version__} ---")
+# --- App and API Configuration ---
 load_dotenv()
 app = Flask(__name__)
-CORS(app)
+# This allows your Vercel frontend to talk to your Render backend
+CORS(app, supports_credentials=True) 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# --- Updated Data Loading ---
+# --- Data Loading ---
 try:
     print(f"Attempting to load products from: {PRODUCTS_CSV_PATH}")
     products_df = pd.read_csv(PRODUCTS_CSV_PATH)
@@ -33,12 +30,17 @@ try:
     behavior_df = pd.read_csv(BEHAVIOR_CSV_PATH)
     print("--- Data files loaded successfully! ---")
 except FileNotFoundError as e:
-    print(f"FATAL ERROR: Could not find data files. Error: {e}")
-    exit()
+    print(f"FATAL ERROR: Could not find data files. The server will not work. Error: {e}")
+    # In a real app, you might want to exit or handle this more gracefully
+    products_df = pd.DataFrame()
+    behavior_df = pd.DataFrame()
 
-# (The rest of your code remains exactly the same)
 
+# --- Recommendation Logic (Unchanged) ---
 def get_recommendations(user_id):
+    if behavior_df.empty or products_df.empty:
+        return pd.DataFrame() # Return empty if data failed to load
+        
     user_viewed_products = behavior_df[behavior_df['user_id'] == user_id]['viewed_product_id'].unique()
     if len(user_viewed_products) == 0:
         return products_df.sample(n=3, replace=True)
@@ -55,16 +57,8 @@ def get_recommendations(user_id):
     top_recs_ids = recommendations.value_counts().nlargest(3).index.tolist()
     return products_df[products_df['product_id'].isin(top_recs_ids)]
 
-def get_llm_explanation(user_history, recommended_product):
-    prompt = f"A user has previously viewed: {', '.join(user_history['product_name'].tolist())}. We are recommending '{recommended_product['product_name']}'. In one short, exciting sentence, explain why, starting with 'Because you liked...'"
-    try:
-        model = genai.GenerativeModel('models/gemini-pro-latest')
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        print(f"Error calling Google Gemini: {e}")
-        return "This would be a great addition to your collection!"
 
+# --- API Endpoint (Completely Rewritten for Speed) ---
 @app.route('/recommendations', methods=['GET'])
 def recommendations_endpoint():
     user_id = request.cookies.get('user_id')
@@ -72,30 +66,66 @@ def recommendations_endpoint():
         user_id = str(uuid.uuid4())
         print(f"New user detected. Assigning ID: {user_id}")
     
+    # Use a consistent ID for recommendation logic
     pseudo_int_id = int(uuid.UUID(user_id).int % NUM_USERS) + USER_ID_START
     
     recommended_products = get_recommendations(pseudo_int_id)
     user_history_ids = behavior_df[behavior_df['user_id'] == pseudo_int_id]['viewed_product_id']
     user_history_df = products_df[products_df['product_id'].isin(user_history_ids)]
     
-    response_data = []
-    for product in recommended_products.to_dict('records'):
-        explanation = get_llm_explanation(user_history_df, product)
-        response_data.append({
-            "product_name": product['product_name'],
-            "category": product['category'],
-            "image_url": product['image_url'],
-            "platforms": product['platforms'],
-            "explanation": explanation
-        })
-        print("Waiting 31 seconds to avoid rate limit...")
-        time.sleep(31)
+    if recommended_products.empty:
+        return jsonify([]) # Return an empty list if no recommendations
+
+    # 1. Prepare a single, efficient prompt for the LLM
+    user_history_str = ', '.join(user_history_df['product_name'].tolist()) if not user_history_df.empty else "a variety of items"
+    recs_list_str = '\n'.join([f"- {row['product_name']}" for _, row in recommended_products.iterrows()])
+    
+    prompt = f"""
+A user has previously viewed: {user_history_str}.
+
+Based on this history, we are recommending the following products:
+{recs_list_str}
+
+For each recommended product, provide a short, exciting, one-sentence explanation for why the user might like it. Start each explanation with the exact product name followed by a colon.
+
+Example format:
+Product Name 1: Because you liked [related item], you'll love this one's features.
+Product Name 2: Since you're interested in [category], this is a perfect match.
+"""
+
+    explanation_map = {}
+    # 2. Call the LLM only ONCE to avoid timeouts
+    try:
+        model = genai.GenerativeModel('gemini-pro') # Using the stable gemini-pro model
+        response = model.generate_content(prompt)
+        explanations_text = response.text.strip()
         
+        # 3. Parse the LLM's single response into a dictionary
+        for line in explanations_text.split('\n'):
+            if ':' in line:
+                parts = line.split(':', 1)
+                product_name = parts[0].strip().lstrip('- ').strip()
+                explanation = parts[1].strip()
+                explanation_map[product_name] = explanation
+
+    except Exception as e:
+        print(f"Error calling Google Gemini: {e}")
+        # If the API fails, we can still proceed without explanations
+
+    # 4. Combine products with their generated explanations
+    response_data = []
+    for _, product in recommended_products.iterrows():
+        product_dict = product.to_dict()
+        product_name = product_dict['product_name']
+        # Use the generated explanation or a fallback
+        product_dict['explanation'] = explanation_map.get(product_name, "This would be a great addition to your collection!")
+        response_data.append(product_dict)
+            
+    # 5. Create the final response and set the user cookie
     response = make_response(jsonify(response_data))
-    response.set_cookie('user_id', user_id, max_age=60*60*24*365)
+    response.set_cookie('user_id', user_id, max_age=60*60*24*365, samesite='None', secure=True)
     
     return response
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
-
