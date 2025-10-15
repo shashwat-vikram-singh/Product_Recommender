@@ -8,22 +8,35 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 
 # -- Configuration Constants ---
-NUM_USERS = 50 # This must match the number of users in generate_huge_data.py
-USER_ID_START = 101 # This must also match
+NUM_USERS = 50
+USER_ID_START = 101
+
+# --- THIS IS THE CRUCIAL FIX ---
+# Get the absolute path of the directory where this script is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Define the paths to your data files using the base directory
+PRODUCTS_CSV_PATH = os.path.join(BASE_DIR, 'data', 'products.csv')
+BEHAVIOR_CSV_PATH = os.path.join(BASE_DIR, 'data', 'user_behavior.csv')
+# --- END OF FIX ---
 
 print(f"--- Using google-generativeai version: {genai.__version__} ---")
 load_dotenv()
 app = Flask(__name__)
-# Allow cookies to be sent from the frontend
 CORS(app, supports_credentials=True, origins=["https://product-recommender-1-ay6j.onrender.com"])
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
+# --- Updated Data Loading ---
 try:
-    products_df = pd.read_csv('data/products.csv')
-    behavior_df = pd.read_csv('data/user_behavior.csv')
+    print(f"Attempting to load products from: {PRODUCTS_CSV_PATH}")
+    products_df = pd.read_csv(PRODUCTS_CSV_PATH)
+    print(f"Attempting to load behavior from: {BEHAVIOR_CSV_PATH}")
+    behavior_df = pd.read_csv(BEHAVIOR_CSV_PATH)
+    print("--- Data files loaded successfully! ---")
 except FileNotFoundError as e:
-    print(f"FATAL ERROR: {e}. Please run 'python generate_huge_data.py' first.")
+    print(f"FATAL ERROR: Could not find data files. Error: {e}")
     exit()
+
+# (The rest of your code remains exactly the same)
 
 def get_recommendations(user_id):
     user_viewed_products = behavior_df[behavior_df['user_id'] == user_id]['viewed_product_id'].unique()
@@ -59,8 +72,6 @@ def recommendations_endpoint():
         user_id = str(uuid.uuid4())
         print(f"New user detected. Assigning ID: {user_id}")
     
-    # --- CRUCIAL UPDATE ---
-    # This calculation now maps the unique cookie ID to one of our 50 user profiles.
     pseudo_int_id = int(uuid.UUID(user_id).int % NUM_USERS) + USER_ID_START
     
     recommended_products = get_recommendations(pseudo_int_id)
@@ -86,6 +97,4 @@ def recommendations_endpoint():
     return response
 
 if __name__ == '__main__':
-
     app.run(debug=True, port=5000)
-
