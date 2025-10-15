@@ -118,11 +118,11 @@ You can now click the **"Generate My Recommendations"** button to see the applic
 
 ## 👤 Author Information
 
-  - **Name:** `[YOUR NAME HERE]`
-  - **University Registration Number:** `[YOUR UNIVERSITY HERE]`
-  - **Registration Number:** `[YOUR REGISTRATION NUMBER HERE]`
+  - **Name:** `Shashwat Vikram Singh`
+  - **University Registration Number:** `22BCE11619`
 
 <!-- end list -->
 
 ```
+
 ```
