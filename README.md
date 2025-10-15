@@ -1,4 +1,3 @@
-```markdown
 # ✨ AI-Powered E-commerce Product Recommender
 
 This project is a complete, full-stack application that provides personalized product recommendations to users. It combines a collaborative filtering algorithm with the Google Gemini Large Language Model to generate human-like explanations for why each product is recommended.
@@ -123,6 +122,3 @@ You can now click the **"Generate My Recommendations"** button to see the applic
 
 <!-- end list -->
 
-```
-
-```
